@@ -1,0 +1,5 @@
+com\yourcompany\board\controller\HealthController.class
+com\yourcompany\board\BoardApplication.class
+com\yourcompany\board\controller\AiController.class
+com\yourcompany\board\dto\AnalyzeRequest.class
+com\yourcompany\board\dto\AnalyzeResponse.class

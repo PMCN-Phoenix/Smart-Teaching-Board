@@ -1,0 +1,7 @@
+server:
+  port: 8080
+
+# AI 微服务地址（与任务包 5.2 启动的 server.py 对应）
+ai:
+  service:
+    url: http://localhost:8000/analyze
