@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>云境智绘 - 最小闭环</title>
+  <style>
+    body { margin: 0; display: flex; font-family: sans-serif; }
+    #left { width: 70%; position: relative; }
+    #video, #outputCanvas { position: absolute; top: 0; left: 0; }
+    #right { width: 30%; padding: 10px; border-left: 2px solid #ccc; background: #f9f9f9; overflow-y: auto; }
+    #toolbar { margin-bottom: 10px; }
+    button { margin-right: 5px; }
+    #aiResult { background: white; padding: 10px; border-radius: 5px; min-height: 200px; }
+  </style>
+</head>
+<body>
+  <div id="left">
+    <video id="video" autoplay playsinline style="width:100%;"></video>
+    <canvas id="outputCanvas" style="width:100%;"></canvas>
+  </div>
+  <div id="right">
+    <div id="toolbar">
+      <button id="clearBtn">清屏</button>
+      <label>笔色：<input type="color" id="colorPicker" value="#000000"></label>
+      <button id="sendBtn">圈选发送 AI</button>
+    </div>
+    <div id="selectionHint">按住 Shift 并拖动鼠标框选区域</div>
+    <div id="aiResult"><em>等待 AI 结果...</em></div>
+  </div>
+
+  <!-- 引入 MediaPipe Hands 和 marked -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('outputCanvas');
+    const ctx = canvas.getContext('2d');
+    const aiResult = document.getElementById('aiResult');
+
+    let isPinching = false;
+    let lastX = 0, lastY = 0;
+    let currentColor = '#000000';
+    let selectionRect = null;
+    let isSelecting = false;
+    let selectStart = { x: 0, y: 0 };
+    let mouseDrawing = false;
+
+    // ---- 画布尺寸自适应 ----
+    function resizeCanvas() {
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+    }
+
+    // ---- 手势回调 (临时禁用清空，只保留逻辑) ----
+    function onResults(results) {
+      // 暂时不执行任何清空或绘制，把画布完全交给鼠标
+      return;
+    }
+
+    // ---- 初始化摄像头与 MediaPipe (保留视频流，但不让它干扰画布) ----
+    async function initCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      await video.play();
+      resizeCanvas();
+      
+      // 关键：初始化 Hands 对象但不启动 Camera 循环，防止 onResults 被频繁调用
+      if (typeof Hands !== 'undefined') {
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({
+          maxNumHands: 1,
+          modelComplexity: 1,
+          minDetectionConfidence: 0.7,
+          minTrackingConfidence: 0.5
+        });
+        // 只把 onResults 挂上，但不调用 camera.start()，这样视频只显示，不处理
+      }
+      
+      // 给画布一个初始的纯净背景
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // ========== 鼠标画线核心逻辑 ==========
+    canvas.addEventListener('mousedown', (e) => {
+      // Shift 键用于框选，正常点击用于画线
+      if (e.shiftKey) {
+        isSelecting = true;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        selectStart = {
+          x: (e.clientX - rect.left) * scaleX,
+          y: (e.clientY - rect.top) * scaleY
+        };
+        selectionRect = null;
+        return;
+      }
+      mouseDrawing = true;
+      const rect = canvas.getBoundingClientRect();
+      lastX = (e.clientX - rect.left) * (canvas.width / rect.width);
+      lastY = (e.clientY - rect.top) * (canvas.height / rect.height);
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (isSelecting) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const currentX = (e.clientX - rect.left) * scaleX;
+        const currentY = (e.clientY - rect.top) * scaleY;
+        selectionRect = {
+          x: Math.min(selectStart.x, currentX),
+          y: Math.min(selectStart.y, currentY),
+          w: Math.abs(currentX - selectStart.x),
+          h: Math.abs(currentY - selectStart.y)
+        };
+        return;
+      }
+      if (!mouseDrawing) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+      const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+      ctx.beginPath();
+      ctx.strokeStyle = currentColor;
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      lastX = x; lastY = y;
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      mouseDrawing = false;
+      isSelecting = false;
+    });
+    // ========== 鼠标画线结束 ==========
+
+    // ---- 工具栏 ----
+    document.getElementById('clearBtn').onclick = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    };
+    document.getElementById('colorPicker').oninput = (e) => currentColor = e.target.value;
+
+    // ---- 发送给后端 ----
+    document.getElementById('sendBtn').onclick = async () => {
+      if (!selectionRect || selectionRect.w < 10 || selectionRect.h < 10) {
+        alert('请先按住 Shift 键并拖动鼠标框选一个区域');
+        return;
+      }
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width = selectionRect.w;
+      cropCanvas.height = selectionRect.h;
+      const cropCtx = cropCanvas.getContext('2d');
+      cropCtx.drawImage(canvas, selectionRect.x, selectionRect.y, selectionRect.w, selectionRect.h, 0, 0, selectionRect.w, selectionRect.h);
+      const base64 = cropCanvas.toDataURL('image/png').replace('data:image/png;base64,', '');
+
+      aiResult.innerHTML = '<em>正在请求 AI...</em>';
+      try {
+        const resp = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image_base64: base64,
+            whiteboard_type: 'general',
+            context: '测试课堂',
+            strict_format: true
+          })
+        });
+        const data = await resp.json();
+        if (data.success) {
+          try {
+            const parsed = JSON.parse(data.content);
+            aiResult.innerHTML = `
+              <p><strong>识别结果：</strong>${parsed.recognized_text || ''}</p>
+              <p><strong>置信度：</strong>${Math.round((parsed.confidence || 0) * 100)}%</p>
+              <p><strong>类型：</strong>${parsed.structured_content?.type || '未知'}</p>
+              ${parsed.ambiguous_spots?.length > 0 ? `<p><strong>模糊点：</strong>${parsed.ambiguous_spots.join(', ')}</p>` : ''}
+            `;
+          } catch {
+            aiResult.innerHTML = marked.parse(data.content);
+          }
+        } else {
+          aiResult.innerHTML = `<span style="color:red;">识别失败：${data.errorMsg || '未知错误'}</span>`;
+        }
+      } catch (err) {
+        aiResult.innerHTML = `<span style="color:red;">网络错误：${err.message}</span>`;
+      }
+    };
+
+    // 启动摄像头和初始化画布
+    initCamera();
+</script>
+</body>
+</html>
