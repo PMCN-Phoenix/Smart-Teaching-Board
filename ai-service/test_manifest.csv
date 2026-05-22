@@ -1,0 +1,2 @@
+filename,type,difficulty,expected_keywords
+math_easy_01.png,math,medium,"F_n,F_{n-1},F_{n-2},n\geq 2"
