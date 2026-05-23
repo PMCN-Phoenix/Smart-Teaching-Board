@@ -36,8 +36,7 @@ public class SecurityConfig {
             // 路径权限配置
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
-                .requestMatchers("/api/analyze").permitAll()   // 临时放行
-                .requestMatchers("/api/test/**").permitAll()   // 临时：放行测试接口
+                // 其他所有接口均需认证，包括 /api/classrooms/**
                 .anyRequest().authenticated()
             )
             // 添加 JWT 过滤器
