@@ -1,10 +1,25 @@
 <template>
     <div class="ai-card" :class="type">
-      <div class="card-header">
-        <span class="badge">{{ typeLabel }}</span>
-        <button v-if="hasCode" class="copy-btn" @click="copyCode">复制代码</button>
+      <!-- 失败状态 -->
+      <div v-if="!success" class="error-card">
+        <div class="error-icon">😥</div>
+        <h3>识别不太顺利</h3>
+        <p>{{ errorMsg || '未知错误' }}</p>
+        <div class="hint">您可以尝试：重新框选更清晰的区域、调整光照或换个角度。</div>
       </div>
-      <div class="card-body" ref="bodyRef" v-html="renderedContent"></div>
+  
+      <!-- 成功状态 -->
+      <div v-else>
+        <div class="card-header">
+          <span class="badge">{{ typeLabel }}</span>
+          <button v-if="hasCode" class="copy-btn" @click="copyCode">复制代码</button>
+        </div>
+        <div class="card-body" ref="bodyRef" v-html="renderedContent"></div>
+        <div class="card-footer">
+          <span>⏱ 耗时 {{ costTime }} 秒</span>
+          <span>🤖 模型：{{ modelUsed }}</span>
+        </div>
+      </div>
     </div>
   </template>
   
@@ -17,7 +32,13 @@
   import 'katex/dist/katex.min.css'
   
   const props = defineProps({
-    content: String,
+    // 新增字段
+    success: { type: Boolean, default: true },
+    errorMsg: { type: String, default: '' },
+    costTime: { type: Number, default: 0 },
+    modelUsed: { type: String, default: '' },
+    // 原有字段
+    content: { type: String, default: '' },
     type: { type: String, default: 'general' }
   })
   
@@ -29,9 +50,8 @@
   
   const hasCode = computed(() => props.type === 'code' || /```/.test(props.content))
   
-  // 渲染 Markdown，并对数学/物理类型进行 KaTeX 公式处理
   const renderedContent = computed(() => {
-    let html = marked.parse(props.content)
+    let html = marked.parse(props.content || '')
     if (props.type === 'math' || props.type === 'physics') {
       html = html.replace(/\$\$([^$]+)\$\$/g, (_, formula) => {
         try { return katex.renderToString(formula, { displayMode: true }) } catch { return _ }
@@ -42,7 +62,6 @@
     return html
   })
   
-  // 高亮代码块
   onMounted(async () => {
     await nextTick()
     if (bodyRef.value) {
@@ -67,4 +86,21 @@
   .card-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
   .badge { font-size: 12px; color: #666; }
   .copy-btn { font-size: 12px; cursor: pointer; }
+  
+  /* 失败卡片样式 */
+  .error-card { padding: 20px; text-align: center; color: #b91c1c; }
+  .error-icon { font-size: 40px; }
+  .hint { font-size: 13px; color: #888; margin-top: 10px; }
+  
+  /* 底部元信息样式 */
+  .card-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 16px;
+    margin-top: 10px;
+    background: #fafafa;
+    border-radius: 0 0 8px 8px;
+    font-size: 12px;
+    color: #666;
+  }
   </style>

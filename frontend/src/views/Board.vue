@@ -168,15 +168,29 @@ async function sendSelection() {
     if (res.data.code === 200 && res.data.data.success) {
       messages.value.push({
         role: 'assistant',
+        success: true,
         content: res.data.data.content,
-        type: whiteboardType.value    // 传递内容类型
+        type: whiteboardType.value,
+        costTime: res.data.data.costTime || 0,
+        modelUsed: res.data.data.modelUsed || '未知模型'
       })
     } else {
-      messages.value.push({ role: 'assistant', content: 'AI 分析失败：' + (res.data.data?.errorMsg || '未知错误') })
+      messages.value.push({
+        role: 'assistant',
+        success: false,
+        errorMsg: res.data.data?.errorMsg || 'AI 分析失败',
+        content: '',
+        type: whiteboardType.value
+      })
     }
   } catch (err) {
     messages.value = messages.value.filter(m => !m.loading)
-    messages.value.push({ role: 'assistant', content: '网络错误，请重试' })
+    messages.value.push({
+      role: 'assistant',
+      success: false,
+      errorMsg: '网络错误，请重试',
+      content: ''
+    })
   } finally {
     sending.value = false
     selection.value = null
@@ -192,13 +206,30 @@ async function handleFollowUp(text) {
     const res = await api.post(`/api/classrooms/${classroomId}/conversation`, { message: text })
     messages.value = messages.value.filter(m => !m.loading)
     if (res.data.code === 200) {
-      messages.value.push({ role: 'assistant', content: res.data.data.content })
+      messages.value.push({
+        role: 'assistant',
+        success: true,
+        content: res.data.data.content,
+        type: 'general',
+        costTime: 0,
+        modelUsed: ''
+      })
     } else {
-      messages.value.push({ role: 'assistant', content: 'AI 对话失败' })
+      messages.value.push({
+        role: 'assistant',
+        success: false,
+        errorMsg: 'AI 对话失败',
+        content: ''
+      })
     }
   } catch (err) {
     messages.value = messages.value.filter(m => !m.loading)
-    messages.value.push({ role: 'assistant', content: '网络错误，请重试' })
+    messages.value.push({
+      role: 'assistant',
+      success: false,
+      errorMsg: '网络错误，请重试',
+      content: ''
+    })
   }
 }
 </script>
