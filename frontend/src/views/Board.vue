@@ -3,11 +3,22 @@
     <div class="canvas-area">
       <video ref="videoRef" autoplay playsinline style="transform: scaleX(-1); width: 100%;"></video>
       <canvas ref="canvasRef" style="position: absolute; top: 0; left: 0; width: 100%; z-index: 10;"></canvas>
+
+      <div
+        v-if="selection && selectionVisible"
+        class="selection-box"
+        :style="selectionBoxStyle"
+      ></div>
     </div>
+
     <div class="controls">
       <button @click="clearCanvas">清屏</button>
       <input type="color" v-model="penColor" @change="setColor(penColor)" />
       <label>笔宽：<input type="range" min="1" max="10" v-model.number="penWidth" @change="setLineWidth(penWidth)" /></label>
+
+      <button :class="{ active: currentBrush === 'pen' }" @click="currentBrush = 'pen'">🖊 钢笔</button>
+      <button :class="{ active: currentBrush === 'highlighter' }" @click="currentBrush = 'highlighter'">🖍 荧光笔</button>
+
       <select v-model="whiteboardType">
         <option value="general">通用</option>
         <option value="math">数学</option>
@@ -21,16 +32,14 @@
       <span v-if="selection">已框选区域</span>
     </div>
     <div class="workspace">
-      <div class="canvas-wrapper">
-        <!-- Canvas 区域在上面 -->
-      </div>
+      <div class="canvas-wrapper"></div>
       <ConversationPanel :messages="messages" @send="handleFollowUp" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useHandGesture } from '../composables/useHandGesture'
 import { api } from '../services/api'
@@ -46,17 +55,44 @@ const penWidth = ref(4)
 const whiteboardType = ref('general')
 const sending = ref(false)
 const messages = ref([])
-// 鼠标绘制状态
+
+const currentBrush = ref('pen')
+const brushStyles = computed(() => ({
+  pen: { lineWidth: penWidth.value, globalAlpha: 1 },
+  highlighter: { lineWidth: penWidth.value * 5, globalAlpha: 1 }
+}))
+
 let isMouseDrawing = false
 let lastMouseX = 0
 let lastMouseY = 0
 
 const { isPinching, init, stop, clearCanvas, setColor, setLineWidth } = useHandGesture(videoRef, canvasRef, { alpha: 0.3 })
 
-// 框选相关
 let selection = ref(null)
+let selectionVisible = ref(false)
 let isSelecting = false
 let selectStart = { x: 0, y: 0 }
+
+const selectionBoxStyle = computed(() => {
+  if (!selection.value) return {}
+  const rect = canvasRef.value?.getBoundingClientRect()
+  if (!rect) return {}
+  const scaleX = rect.width / (canvasRef.value.width || 1)
+  const scaleY = rect.height / (canvasRef.value.height || 1)
+  return {
+    left: selection.value.x * scaleX + 'px',
+    top: selection.value.y * scaleY + 'px',
+    width: selection.value.w * scaleX + 'px',
+    height: selection.value.h * scaleY + 'px'
+  }
+})
+
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3), 16)
+  const g = parseInt(hex.slice(3,5), 16)
+  const b = parseInt(hex.slice(5,7), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
 
 function onMouseDown(e) {
   const rect = canvasRef.value.getBoundingClientRect()
@@ -66,14 +102,13 @@ function onMouseDown(e) {
   const y = (e.clientY - rect.top) * scaleY
 
   if (e.shiftKey) {
-    // Shift 按下 → 框选模式
     isSelecting = true
     selectStart = { x, y }
     selection.value = null
+    selectionVisible.value = true
     return
   }
 
-  // 未按 Shift → 鼠标书写模式
   isMouseDrawing = true
   lastMouseX = x
   lastMouseY = y
@@ -87,7 +122,6 @@ function onMouseMove(e) {
   const y = (e.clientY - rect.top) * scaleY
 
   if (isSelecting) {
-    // 框选模式
     selection.value = {
       x: Math.min(selectStart.x, x),
       y: Math.min(selectStart.y, y),
@@ -98,12 +132,21 @@ function onMouseMove(e) {
   }
 
   if (isMouseDrawing) {
-    // 鼠标书写模式
     const ctx = canvasRef.value.getContext('2d')
+    const style = brushStyles.value[currentBrush.value]
     ctx.beginPath()
-    ctx.strokeStyle = penColor.value
-    ctx.lineWidth = penWidth.value
-    ctx.lineCap = 'round'
+    ctx.lineWidth = style.lineWidth
+
+    if (currentBrush.value === 'highlighter') {
+      // 荧光笔：平头端点 + 半透明颜色，避免重叠不匀
+      ctx.strokeStyle = hexToRgba(penColor.value, 0.3)
+      ctx.globalAlpha = 1
+      ctx.lineCap = 'butt'
+    } else {
+      ctx.strokeStyle = penColor.value
+      ctx.globalAlpha = 1
+      ctx.lineCap = 'round'
+    }
     ctx.moveTo(lastMouseX, lastMouseY)
     ctx.lineTo(x, y)
     ctx.stroke()
@@ -115,13 +158,13 @@ function onMouseMove(e) {
 function onMouseUp() {
   if (isSelecting) {
     isSelecting = false
+    selectionVisible.value = false
   }
   if (isMouseDrawing) {
     isMouseDrawing = false
   }
 }
 
-// 绑定框选事件
 onMounted(() => {
   init()
   const canvas = canvasRef.value
@@ -140,7 +183,6 @@ onUnmounted(() => {
   }
 })
 
-// 发送圈选区域给 AI
 async function sendSelection() {
   if (!selection.value || selection.value.w < 10 || selection.value.h < 10) {
     alert('请先按住 Shift 键并拖动鼠标框选一个区域')
@@ -193,11 +235,10 @@ async function sendSelection() {
     })
   } finally {
     sending.value = false
-    selection.value = null
+    selection.value = null    // 发送后清空 selection，虚线框不再显示
   }
 }
 
-// 追问
 async function handleFollowUp(text) {
   messages.value.push({ role: 'user', content: text })
   messages.value.push({ role: 'assistant', content: '', loading: true })
@@ -240,4 +281,40 @@ async function handleFollowUp(text) {
 .canvas-wrapper { flex: 1; position: relative; }
 .canvas-area { position: relative; flex-shrink: 0; }
 .controls { padding: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* 笔刷按钮激活样式 */
+.controls button.active {
+  background: #2196f3;
+  color: white;
+  border-color: #2196f3;
+  transform: scale(1.05);
+  transition: all 0.2s;
+}
+.controls button {
+  padding: 4px 12px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+/* 圈选虚线框 */
+.selection-box {
+  position: absolute;
+  border: 2px dashed #3b82f6;
+  animation: breathe 1.5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 20;
+}
+@keyframes breathe {
+  0%, 100% {
+    border-color: #3b82f6;
+    box-shadow: 0 0 4px rgba(59,130,246,0.3);
+  }
+  50% {
+    border-color: #93c5fd;
+    box-shadow: 0 0 12px rgba(59,130,246,0.6);
+  }
+}
 </style>

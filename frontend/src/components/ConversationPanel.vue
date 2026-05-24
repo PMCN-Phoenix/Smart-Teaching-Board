@@ -4,15 +4,26 @@
         <div v-for="(msg, idx) in messages" :key="idx" :class="['message', msg.role]">
           <div class="role-label">{{ msg.role === 'user' ? '你' : 'AI' }}</div>
   
-          <!-- 加载动画：独立于内容区域，只要 loading 为 true 就显示 -->
-          <div v-if="msg.loading" class="loading">
-            <span class="spinner"></span> AI 正在分析白板内容...
+          <!-- 骨架屏：只要 loading 为 true 就显示 -->
+          <div v-if="msg.loading" class="skeleton-card">
+            <div class="skeleton-header"></div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line short"></div>
+            <div class="skeleton-line"></div>
           </div>
   
           <!-- 正常内容：非加载状态时显示 -->
           <div v-else class="content">
             <template v-if="msg.role === 'assistant'">
-              <AICard v-if="msg.type" :content="msg.content" :type="msg.type" />
+              <AICard
+                v-if="msg.type"
+                :content="msg.content || ''"
+                :type="msg.type"
+                :success="msg.success !== false"
+                :error-msg="msg.errorMsg || ''"
+                :cost-time="msg.costTime || 0"
+                :model-used="msg.modelUsed || ''"
+              />
               <div v-else v-html="renderMarkdown(msg.content)"></div>
             </template>
             <template v-else>
@@ -64,15 +75,37 @@
   .role-label { font-weight: bold; font-size: 12px; margin-bottom: 4px; }
   .content { margin-top: 4px; }
   
-  .loading {
-    color: #555; font-style: italic; display: flex; align-items: center; gap: 6px;
+  /* 骨架屏样式 */
+  .skeleton-card {
+    padding: 16px;
+    background: #fff;
+    border-radius: 12px;
+    margin: 10px 0;
   }
-  .spinner {
-    display: inline-block; width: 14px; height: 14px;
-    border: 2px solid #ccc; border-top-color: #2196f3;
-    border-radius: 50%; animation: spin 0.6s linear infinite;
+  .skeleton-header {
+    height: 20px;
+    width: 40%;
+    background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 10px;
+    margin-bottom: 12px;
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .skeleton-line {
+    height: 12px;
+    background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 6px;
+    margin-bottom: 8px;
+  }
+  .skeleton-line.short {
+    width: 70%;
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
   
   .input-area { display: flex; gap: 5px; }
   .input-area input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
