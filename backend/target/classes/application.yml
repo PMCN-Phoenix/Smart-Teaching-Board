@@ -3,7 +3,7 @@ server:
 
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/smart_board?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=UTF-8  
+    url: jdbc:mysql://localhost:3306/smart_board?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
     username: root
     password: 123456              # 👈 此处替换
     driver-class-name: com.mysql.cj.jdbc.Driver
