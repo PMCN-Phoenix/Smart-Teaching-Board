@@ -12,7 +12,7 @@
     </div>
 
     <div class="controls">
-      <button @click="clearCanvas">清屏</button>
+      <button @click="handleClear">清屏</button>
       <input type="color" v-model="penColor" @change="setColor(penColor)" />
       <label>笔宽：<input type="range" min="1" max="10" v-model.number="penWidth" @change="setLineWidth(penWidth)" /></label>
 
@@ -28,6 +28,9 @@
       <button @click="sendSelection" :disabled="!selection || sending">
         {{ sending ? '分析中...' : '圈选发送 AI' }}
       </button>
+      <button @click="endClassroom" :disabled="sending" style="margin-left: auto; background: #ff5252; color: white; border: none;">
+        结束课堂
+      </button>
       <span>手势状态：{{ isPinching ? '书写中' : '未捏合' }}</span>
       <span v-if="selection">已框选区域</span>
     </div>
@@ -40,12 +43,13 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useHandGesture } from '../composables/useHandGesture'
 import { api } from '../services/api'
 import ConversationPanel from '../components/ConversationPanel.vue'
 
 const route = useRoute()
+const router = useRouter()
 const classroomId = route.params.classroomId
 
 const videoRef = ref(null)
@@ -65,8 +69,18 @@ const brushStyles = computed(() => ({
 let isMouseDrawing = false
 let lastMouseX = 0
 let lastMouseY = 0
+let currentMouseStroke = null
 
-const { isPinching, init, stop, clearCanvas, setColor, setLineWidth } = useHandGesture(videoRef, canvasRef, { alpha: 0.3 })
+const {
+  isPinching,
+  init,
+  stop,
+  clearCanvas,
+  setColor,
+  setLineWidth,
+  strokes,
+  clearStrokes
+} = useHandGesture(videoRef, canvasRef, { alpha: 0.3 })
 
 let selection = ref(null)
 let selectionVisible = ref(false)
@@ -112,6 +126,9 @@ function onMouseDown(e) {
   isMouseDrawing = true
   lastMouseX = x
   lastMouseY = y
+
+  currentMouseStroke = { points: [{ x, y, time: Date.now() }] }
+  strokes.value.push(currentMouseStroke)
 }
 
 function onMouseMove(e) {
@@ -138,7 +155,6 @@ function onMouseMove(e) {
     ctx.lineWidth = style.lineWidth
 
     if (currentBrush.value === 'highlighter') {
-      // 荧光笔：平头端点 + 半透明颜色，避免重叠不匀
       ctx.strokeStyle = hexToRgba(penColor.value, 0.3)
       ctx.globalAlpha = 1
       ctx.lineCap = 'butt'
@@ -152,6 +168,10 @@ function onMouseMove(e) {
     ctx.stroke()
     lastMouseX = x
     lastMouseY = y
+
+    if (currentMouseStroke) {
+      currentMouseStroke.points.push({ x, y, time: Date.now() })
+    }
   }
 }
 
@@ -162,7 +182,15 @@ function onMouseUp() {
   }
   if (isMouseDrawing) {
     isMouseDrawing = false
+    currentMouseStroke = null
   }
+}
+
+// ✅ 修改后的清屏函数：只清除画布，保留所有笔迹
+function handleClear() {
+  clearCanvas()
+  currentMouseStroke = null
+  isMouseDrawing = false
 }
 
 onMounted(() => {
@@ -235,7 +263,7 @@ async function sendSelection() {
     })
   } finally {
     sending.value = false
-    selection.value = null    // 发送后清空 selection，虚线框不再显示
+    selection.value = null
   }
 }
 
@@ -273,6 +301,22 @@ async function handleFollowUp(text) {
     })
   }
 }
+
+async function endClassroom() {
+  if (strokes.value.length === 0) {
+    alert('没有书写记录，无法保存')
+    return
+  }
+  try {
+    await api.post(`/api/classrooms/${classroomId}/strokes`, {
+      strokes: strokes.value
+    })
+    alert('课堂已结束，笔迹已保存')
+    router.push('/dashboard')
+  } catch (err) {
+    alert('保存笔迹失败：' + (err.response?.data?.message || err.message))
+  }
+}
 </script>
 
 <style scoped>
@@ -282,7 +326,6 @@ async function handleFollowUp(text) {
 .canvas-area { position: relative; flex-shrink: 0; }
 .controls { padding: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-/* 笔刷按钮激活样式 */
 .controls button.active {
   background: #2196f3;
   color: white;
@@ -299,7 +342,6 @@ async function handleFollowUp(text) {
   transition: all 0.2s;
 }
 
-/* 圈选虚线框 */
 .selection-box {
   position: absolute;
   border: 2px dashed #3b82f6;
