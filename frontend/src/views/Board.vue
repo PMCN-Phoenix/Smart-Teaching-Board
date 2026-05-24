@@ -47,6 +47,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useHandGesture } from '../composables/useHandGesture'
 import { api } from '../services/api'
 import ConversationPanel from '../components/ConversationPanel.vue'
+import { compressBase64Image } from '../utils/imageCompress'  // ✅ 导入压缩工具
 
 const route = useRoute()
 const router = useRouter()
@@ -186,7 +187,6 @@ function onMouseUp() {
   }
 }
 
-// ✅ 修改后的清屏函数：只清除画布，保留所有笔迹
 function handleClear() {
   clearCanvas()
   currentMouseStroke = null
@@ -211,6 +211,7 @@ onUnmounted(() => {
   }
 })
 
+// ✅ 修改后的 sendSelection，加入图片压缩
 async function sendSelection() {
   if (!selection.value || selection.value.w < 10 || selection.value.h < 10) {
     alert('请先按住 Shift 键并拖动鼠标框选一个区域')
@@ -222,7 +223,16 @@ async function sendSelection() {
   cropCanvas.height = sel.h
   const cropCtx = cropCanvas.getContext('2d')
   cropCtx.drawImage(canvasRef.value, sel.x, sel.y, sel.w, sel.h, 0, 0, sel.w, sel.h)
-  const base64 = cropCanvas.toDataURL('image/png').replace('data:image/png;base64,', '')
+
+  // 原始 Base64
+  let base64 = cropCanvas.toDataURL('image/png').replace('data:image/png;base64,', '')
+
+  // ✅ 压缩图片（限制宽度 800px，质量 0.7）
+  try {
+    base64 = await compressBase64Image(base64, 800, 0.7)
+  } catch (e) {
+    console.warn('图片压缩失败，将使用原图', e)
+  }
 
   sending.value = true
   messages.value.push({ role: 'user', content: '[发送了白板截图]' })
