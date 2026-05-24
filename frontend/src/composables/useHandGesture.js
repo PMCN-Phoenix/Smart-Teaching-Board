@@ -49,9 +49,8 @@ export function useHandGesture(videoRef, canvasRef, options = {}) {
     const { Hands } = window
     hands = new Hands({
         locateFile: (file) => {
-          // 开发阶段使用 CDN，确保网络畅通
-          const cdnPath = `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`
-          return cdnPath
+          // 完全使用本地模型文件，断网也可用
+          return `/models/${file}`
         }
       })
 
@@ -69,13 +68,10 @@ export function useHandGesture(videoRef, canvasRef, options = {}) {
     videoRef.value.srcObject = stream
     await videoRef.value.play()
 
-    // 初始化画布
+    // 初始化画布尺寸，不填充白色（因为要透明背景）
     const canvas = canvasRef.value
     canvas.width = videoRef.value.videoWidth || 640
     canvas.height = videoRef.value.videoHeight || 480
-    const ctx = canvas.getContext('2d')
-    ctx.fillStyle = 'white'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
 
     // 帧循环
     const sendFrame = async () => {
@@ -108,6 +104,8 @@ export function useHandGesture(videoRef, canvasRef, options = {}) {
 
     // 提取关键点
     const landmarks = results.multiHandLandmarks[0]
+    if (!landmarks || landmarks.length < 9) return  // 防御：关键点不足则跳过本帧
+
     const indexTip = landmarks[8]
     const thumbTip = landmarks[4]
 
@@ -197,9 +195,8 @@ export function useHandGesture(videoRef, canvasRef, options = {}) {
     const canvas = canvasRef.value
     if (!canvas) return
     const ctx = canvas.getContext('2d')
+    // 只清除画布内容，保持透明背景
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.fillStyle = 'white'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
   }
 
   // 清空笔迹记录（用于清屏按钮）

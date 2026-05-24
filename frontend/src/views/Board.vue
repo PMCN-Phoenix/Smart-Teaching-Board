@@ -1,8 +1,17 @@
 <template>
   <div class="board-container">
-    <div class="canvas-area">
-      <video ref="videoRef" autoplay playsinline style="transform: scaleX(-1); width: 100%;"></video>
-      <canvas ref="canvasRef" style="position: absolute; top: 0; left: 0; width: 100%; z-index: 10;"></canvas>
+    <div class="canvas-area" :style="{ background: videoVisible ? '#000' : '#fff' }">
+      <video
+        ref="videoRef"
+        autoplay
+        playsinline
+        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); z-index: 1;"
+        :style="{ opacity: videoVisible ? 1 : 0 }"
+      ></video>
+      <canvas
+        ref="canvasRef"
+        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; background: transparent;"
+      ></canvas>
 
       <div
         v-if="selection && selectionVisible"
@@ -18,6 +27,11 @@
 
       <button :class="{ active: currentBrush === 'pen' }" @click="currentBrush = 'pen'">🖊 钢笔</button>
       <button :class="{ active: currentBrush === 'highlighter' }" @click="currentBrush = 'highlighter'">🖍 荧光笔</button>
+
+      <!-- 摄像头切换按钮 -->
+      <button @click="videoVisible = !videoVisible">
+        {{ videoVisible ? '📷 隐藏摄像头' : '📷 显示摄像头' }}
+      </button>
 
       <select v-model="whiteboardType">
         <option value="general">通用</option>
@@ -47,7 +61,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useHandGesture } from '../composables/useHandGesture'
 import { api } from '../services/api'
 import ConversationPanel from '../components/ConversationPanel.vue'
-import { compressBase64Image } from '../utils/imageCompress'  // ✅ 导入压缩工具
+import { compressBase64Image } from '../utils/imageCompress'
 
 const route = useRoute()
 const router = useRouter()
@@ -60,6 +74,7 @@ const penWidth = ref(4)
 const whiteboardType = ref('general')
 const sending = ref(false)
 const messages = ref([])
+const videoVisible = ref(false)   // 摄像头默认关闭
 
 const currentBrush = ref('pen')
 const brushStyles = computed(() => ({
@@ -189,6 +204,12 @@ function onMouseUp() {
 
 function handleClear() {
   clearCanvas()
+  const canvas = canvasRef.value
+  if (canvas) {
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+  }
   currentMouseStroke = null
   isMouseDrawing = false
 }
@@ -199,6 +220,11 @@ onMounted(() => {
   canvas.addEventListener('mousedown', onMouseDown)
   canvas.addEventListener('mousemove', onMouseMove)
   canvas.addEventListener('mouseup', onMouseUp)
+
+  // 初始白色背景（因为 useHandGesture 未填充）
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
 })
 
 onUnmounted(() => {
@@ -211,7 +237,6 @@ onUnmounted(() => {
   }
 })
 
-// ✅ 修改后的 sendSelection，加入图片压缩
 async function sendSelection() {
   if (!selection.value || selection.value.w < 10 || selection.value.h < 10) {
     alert('请先按住 Shift 键并拖动鼠标框选一个区域')
@@ -224,10 +249,8 @@ async function sendSelection() {
   const cropCtx = cropCanvas.getContext('2d')
   cropCtx.drawImage(canvasRef.value, sel.x, sel.y, sel.w, sel.h, 0, 0, sel.w, sel.h)
 
-  // 原始 Base64
   let base64 = cropCanvas.toDataURL('image/png').replace('data:image/png;base64,', '')
 
-  // ✅ 压缩图片（限制宽度 800px，质量 0.7）
   try {
     base64 = await compressBase64Image(base64, 800, 0.7)
   } catch (e) {
@@ -246,10 +269,29 @@ async function sendSelection() {
     })
     messages.value = messages.value.filter(m => !m.loading)
     if (res.data.code === 200 && res.data.data.success) {
+      let displayContent = res.data.data.content
+
+      try {
+        const parsed = JSON.parse(displayContent)
+        if (parsed.recognized_text) {
+          let formatted = `**识别结果**：${parsed.recognized_text}`
+          if (parsed.confidence != null) {
+            formatted += `\n\n**置信度**：${Math.round(parsed.confidence * 100)}%`
+          }
+          if (parsed.structured_content?.body) {
+            formatted += `\n\n**内容**：${parsed.structured_content.body}`
+          }
+          if (parsed.ambiguous_spots?.length > 0) {
+            formatted += `\n\n**模糊点**：${parsed.ambiguous_spots.join(', ')}`
+          }
+          displayContent = formatted
+        }
+      } catch (e) {}
+
       messages.value.push({
         role: 'assistant',
         success: true,
-        content: res.data.data.content,
+        content: displayContent,
         type: whiteboardType.value,
         costTime: res.data.data.costTime || 0,
         modelUsed: res.data.data.modelUsed || '未知模型'
@@ -333,7 +375,11 @@ async function endClassroom() {
 .board-container { display: flex; flex-direction: column; height: 100vh; }
 .workspace { display: flex; flex: 1; overflow: hidden; }
 .canvas-wrapper { flex: 1; position: relative; }
-.canvas-area { position: relative; flex-shrink: 0; }
+.canvas-area {
+  position: relative;
+  flex-shrink: 0;
+  height: 60vh;
+}
 .controls { padding: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 .controls button.active {
